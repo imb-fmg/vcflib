@@ -224,6 +224,7 @@ e.g. [script](./scripts/vcfgtcompare.sh).
  | [pFst](./doc/pFst.md) | **pFst** is a probabilistic approach for detecting differences in allele frequencies between two populations. |
  | [iHS](./doc/iHS.md) | **iHS** calculates the integrated haplotype score which measures the relative decay of extended haplotype homozygosity (EHH) for the reference and alternative alleles at a site (see: voight et al. 2006, Spiech & Hernandez 2014). |
  | [popStats](./doc/popStats.md) | General population genetic statistics for each SNP |
+ | vcfvaf | Adds variant allele frequency [VAF] to each record. Uses: AO (alternate observation count) and DP (read depth at the locus). |
 
 See also [vcflib.md](./doc/vcflib.md).
 
