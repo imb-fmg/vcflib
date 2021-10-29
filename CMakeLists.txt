@@ -185,6 +185,7 @@ set(BINS
     vcfglbound
     vcfinfosummarize
     vcfvaf
+    vcflen
     )
 
 set(SCRIPTS
