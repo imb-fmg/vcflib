@@ -2,12 +2,12 @@
     vcflib C++ library for parsing and manipulating VCF files
 
     Copyright © 2010-2020 Erik Garrison
-    Copyright © 2020      Pjotr Prins
+    Copyright © 2020-2024      Pjotr Prins
 
     This software is published under the MIT License. See the LICENSE file.
 */
 
-#include "Variant.h"
+#include "legacy.h"
 #include "split.h"
 #include <string>
 #include <sstream>
@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    Variant var(variantFile);
+    VariantLegacy var(variantFile);
 
     // write the new header
     cout << variantFile.header << endl;
@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     // print the records, filtering is done via the setting of varA's output sample names
     while (variantFile.getNextVariant(var)) {
         // if we just have one parsed alternate (non-complex case)
-        map<string, vector<VariantAllele> > parsedAlts = var.parsedAlternates(true, true); // use mnps, and previous for indels
+        map<string, vector<VariantAllele> > parsedAlts = var.legacy_parsedAlternates(true, true); // use mnps, and previous for indels
         // but the alt string is long
         //cerr << var.alt.size() << " " << parsedAlts.size() << endl;
         if (var.alt.size() == 1 && parsedAlts.size() > 1) {

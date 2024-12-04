@@ -15,7 +15,7 @@ using namespace std;
 using namespace vcflib;
 
 void printSummary(char** argv) {
-  cerr << "vcflib " << VCFLIB_VERSION << " filter the specified vcf file using the set of filters" << endl << endl
+  cerr << "vcflib filter the specified vcf file using the set of filters" << endl << endl
        << "usage: " << argv[0] << " [options] <vcf file>" << endl
          << endl
          << "options:" << endl
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
                 {"info-filter",  required_argument, 0, 'f'},
                 {"genotype-filter",  required_argument, 0, 'g'},
                 {"tag-pass", required_argument, 0, 't'},
-                {"tag-pass", required_argument, 0, 'F'},
+                {"tag-fail", required_argument, 0, 'F'},
                 {"append-filter", no_argument, 0, 'A'},
                 {"allele-tag", required_argument, 0, 'a'},
                 {"invert", no_argument, 0, 'v'},

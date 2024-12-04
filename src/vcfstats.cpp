@@ -7,7 +7,7 @@
     This software is published under the MIT License. See the LICENSE file.
 */
 
-#include "Variant.h"
+#include "legacy.h"
 #include "split.h"
 #include "convert.h"
 #include <getopt.h>
@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
         cout << variantFile.header << endl;
     }
 
-    Variant var(variantFile);
+    VariantLegacy var(variantFile);
 
     vector<string>::iterator regionItr = regions.begin();
 
@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
                 ++biallelics;
             }
             map<string, vector<VariantAllele> > alternates
-	      = var.parsedAlternates(includePreviousBaseForIndels,
+	      = var.legacy_parsedAlternates(includePreviousBaseForIndels,
 				     useMNPs,
 				     useEntropy,
 				     matchScore,

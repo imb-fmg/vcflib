@@ -1,14 +1,16 @@
 /*
     vcflib C++ library for parsing and manipulating VCF files
 
-    Copyright © 2010-2020 Erik Garrison
-    Copyright © 2020      Pjotr Prins
+    Variant.h is used by external tools, such as freebayes. We should take care to
+    minimize what it pulls in.
+
+    Copyright © 2010-2024 Erik Garrison
+    Copyright © 2020-2024 Pjotr Prins
 
     This software is published under the MIT License. See the LICENSE file.
 */
 
-#ifndef __VARIANT_H
-#define __VARIANT_H
+#pragma once
 
 #include <vector>
 #include <list>
@@ -27,13 +29,18 @@
 #include "split.h"
 #include "join.h"
 #include <tabix.hpp>
-#include "SmithWatermanGotoh.h"
-#include "ssw_cpp.hpp"
 #include "convert.h"
-#include "multichoose.h"
-#include <Fasta.h>
+#include "rkmh.hpp"
+#include "LeftAlign.hpp"
+
+// The following includes moved into their sources because of lib dependencies
+// #include <SmithWatermanGotoh.h>
+// #include "ssw_cpp.hpp"
+// #include <Fasta.h> --> see canonicalize.h
+// #include "multichoose.h"
+
 extern "C" {
-    #include "filevercmp.h"
+  #include "filevercmp.h"
 }
 
 using namespace std;
@@ -60,7 +67,6 @@ VariantFieldType typeStrToFieldType(string& typeStr);
 ostream& operator<<(ostream& out, VariantFieldType type);
 
 typedef map<string, map<string, vector<string> > > Samples;
-typedef vector<pair<int, string> > Cigar;
 
 /// Compute a reverse complement. Supports both upper-case and lower-case input characters.
 std::string reverse_complement(const std::string& seq);
@@ -97,8 +103,8 @@ public:
     void updateSamples(vector<string>& newSampleNames);
     string headerWithSampleNames(vector<string>& newSamples); // non-destructive, for output
     void addHeaderLine(string line);
-    void removeInfoHeaderLine(string line);
-    void removeGenoHeaderLine(string line);
+    void removeInfoHeaderLine(string const & line);
+    void removeGenoHeaderLine(string const & line);
     vector<string> infoIds(void);
     vector<string> formatIds(void);
 
@@ -142,7 +148,20 @@ public:
         return parsedHeader;
     }
 
-VariantCallFile(void) : usingTabix(false), parseSamples(true), justSetRegion(false), parsedHeader(false) { }
+    off_t file_pos() {
+        if (usingTabix) {
+            return tabixFile->file_pos();
+        }
+        return file->tellg();
+    }
+
+    VariantCallFile(void) :
+        usingTabix(false),
+        parseSamples(true),
+        justSetRegion(false),
+        parsedHeader(false)
+    { }
+
     ~VariantCallFile(void) {
         if (usingTabix) {
             delete tabixFile;
@@ -174,31 +193,6 @@ private:
 
 };
 
-class VariantAllele {
-    friend ostream& operator<<(ostream& out, VariantAllele& var);
-    friend bool operator<(const VariantAllele& a, const VariantAllele& b);
-    friend VariantAllele operator+(const VariantAllele& a, const VariantAllele& b);
-public:
-    string ref;
-    string alt;
-    string repr;
-    long position;
-    /* // TODO
-    bool isSNP(void);
-    bool isMNP(void);
-    bool isInsertion(void);
-    bool isDeletion(void);
-    bool isIndel(void);
-    */
-    VariantAllele(string r, string a, long p)
-        : ref(r), alt(a), position(p)
-    {
-        stringstream s;
-        s << position << ":" << ref << "/" << alt;
-        repr = s.str();
-    }
-};
-
 class Variant {
 
     friend ostream& operator<<(ostream& out, Variant& var);
@@ -213,12 +207,14 @@ public:
     vector<string> alt;      // a list of all the alternate alleles present at this locus
     vector<string> alleles;  // a list all alleles (ref + alt) at this locus
                              // the indicies are organized such that the genotype codes (0,1,2,.etc.)
-                             // correspond to the correct offest into the allelese vector.
+                             // correspond to the correct offest into the alleles vector.
                              // that is, alleles[0] = ref, alleles[1] = first alternate allele, etc.
 
     string vrepr(void);  // a comparable record of the variantion described by the record
     set<string> altSet(void);  // set of alleles, rather than vector of them
     map<string, int> altAlleleIndexes;  // reverse lookup for alleles
+
+
     map<string, vector<VariantAllele> > parsedAlternates(bool includePreviousBaseForIndels = false,
                                                          bool useMNPs = false,
                                                          bool useEntropy = false,
@@ -229,37 +225,12 @@ public:
                                                          float repeatGapExtendPenalty = 0.0f,
                                                          string flankingRefLeft = "",
                                                          string flankingRefRight = "");
+
     // the same output format as parsedAlternates, without parsing
     map<string, vector<VariantAllele> > flatAlternates(void);
 
     map<string, string> extendedAlternates(long int newPosition, long int length);
 
-    /**
-     * Convert a structural variant to the canonical VCF4.3 format using a reference.
-     *   Meturns true if the variant is canonicalized, false otherwise.
-     *   May NOT be called twice on the same variant; it will fail an assert.
-     *   Returns false for non-SVs
-     *   place_seq: if true, the ref/alt fields are
-     *       filled in with the corresponding sequences
-     *     from the reference (and optionally insertion FASTA)
-     * min_size_override: If a variant is less than this size,
-     *     and it has a valid REF and ALT, consider it canonicalized
-     *     even if the below conditions are not true.
-     * Fully canonicalized variants (which are greater than min_size_override)
-     * guarantee the following:
-     *  - POS <= END and corresponds to the anchoring base for symbolic alleles
-     *  - SVLEN info field is set and is positive for all variants except DELs
-     *  - SVTYPE info field is set and is in {DEL, INS, INV, DUP}
-     *  - END info field is set to the POS + len(REF allele) - 1 and corresponds to the final affected reference base
-     *  - Insertions get an upper-case SEQ info field
-     *  - REF and ALT are upper-case if filled in by this function
-     *  - canonical = true;
-     * TODO: CURRENTLY: canonical requires there be only one alt allele
-    **/
-    bool canonicalize(FastaReference& ref,
-         vector<FastaReference*> insertions,
-         bool place_seq = true,
-         int min_size_override = 0);
 
     /**
      * Returns true if the variant's ALT contains a symbolic allele like <INV>
@@ -272,23 +243,6 @@ public:
      */
     bool hasSVTags() const;
 
-    /**
-     * This returns true if the variant appears able to be handled by
-     * canonicalize(). It checks if it has fully specified sequence, or if it
-     * has a defined SV type and length/endpoint.
-     */
-    bool canonicalizable();
-
-    /**
-     * This gets set to true after canonicalize() has been called on the variant, if it succeeded.
-     */
-    bool canonical;
-
-    /**
-     * Get the maximum zero-based position of the reference affected by this variant.
-     * Only works reliably for variants that are not SVs or for SVs that have been canonicalize()'d.
-     */
-    int getMaxReferencePos();
 
     /**
      * Return the SV type of the given alt, or "" if there is no SV type set for that alt.
@@ -304,7 +258,8 @@ public:
     double quality;
     VariantFieldType infoType(const string& key);
     map<string, vector<string> > info;  // vector<string> allows for lists by Genotypes or Alternates
-    map<string, bool> infoFlags;
+    map<string, bool> infoFlags; // INFO flags are stored separately
+    vector<string> infoOrderedKeys; // track order of INFO fields
     VariantFieldType formatType(const string& key);
     vector<string> format;
     map<string, map<string, vector<string> > > samples;  // vector<string> allows for lists by Genotypes or Alternates
@@ -355,6 +310,14 @@ public:
     bool isPhased(void);
     // TODO
     //void setInfoField(const string& key, string& val);
+    void reduceAlleles(
+	map<string, pair<vector<VariantAllele>, bool> > varAlleles,
+	VariantCallFile &variantFile,
+	Variant var,
+	string parseFlag,
+	bool keepInfo=true,
+	bool keepGeno=true,
+	bool debug=false);
 
 private:
 
@@ -562,18 +525,6 @@ map<int, int> glReorder(int ploidy, int numalts, map<int, int>& alleleIndexMappi
 
 vector<string>& unique(vector<string>& strings);
 
-string varCigar(vector<VariantAllele>& vav, bool xForMismatch = false);
-string mergeCigar(const string& c1, const string& c2);
-vector<pair<int, string> > splitCigar(const string& cigarStr);
-list<pair<int, string> > splitCigarList(const string& cigarStr);
-int cigarRefLen(const vector<pair<int, char> >& cigar);
-int cigarRefLen(const vector<pair<int, string> >& cigar);
-vector<pair<int, string> > cleanCigar(const vector<pair<int, string> >& cigar);
-string joinCigar(const vector<pair<int, string> >& cigar);
-string joinCigar(const vector<pair<int, char> >& cigar);
-string joinCigarList(const list<pair<int, string> >& cigar);
-bool isEmptyCigarElement(const pair<int, string>& elem);
-
 // for sorting, generating maps ordered by chromosome name
 class ChromNameCompare {
 public:
@@ -642,8 +593,8 @@ private:
      * the maps we're going to be using will be case-insensitive
      * so that "fileFormat" and "fileformat" hash to the same item.
      */
-    struct stringcasecmp : binary_function<string, string, bool> {
-        struct charcasecmp : public std::binary_function<unsigned char, unsigned char, bool> {
+    struct stringcasecmp {
+        struct charcasecmp {
             bool operator() (const unsigned char& c1, const unsigned char& c2) const {
                 return tolower (c1) < tolower (c2);
             }
@@ -662,5 +613,3 @@ private:
 };
 
 } // end namespace VCF
-
-#endif
